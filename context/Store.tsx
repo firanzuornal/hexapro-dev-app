@@ -1,7 +1,19 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User, Ticket, UserRole, TicketStatus, TicketPriority, TicketType, Task, Attachment, TicketLog } from '../types';
+import { User, Ticket, UserRole, TicketStatus, Task, Attachment, TicketLog, TaskApprovalStatus } from '../types';
+import { db } from '../firebase';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  setDoc,
+  query,
+  orderBy
+} from 'firebase/firestore';
 
-// Helper to generate strong client ID
+// Helper to generate strong client ID (kept for new user generation)
 const generateClientId = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
   let result = '';
@@ -10,57 +22,6 @@ const generateClientId = () => {
   }
   return `hx-${result}`;
 };
-
-// --- MOCK DATA ---
-const MOCK_USERS: User[] = [
-  { id: 'u1', username: 'admin', password: '123', name: 'Bintang Admin', role: UserRole.ADMIN, avatar: 'https://picsum.photos/id/64/100/100', bio: 'System Administrator', companyName: 'Hexapro Inc', clientId: generateClientId() },
-  { id: 'u2', username: 'dev', password: '123', name: 'Dean Dev', role: UserRole.DEVELOPER, avatar: 'https://picsum.photos/id/91/100/100', bio: 'Full Stack Developer', companyName: 'Hexapro Inc', clientId: generateClientId() },
-  { id: 'u3', username: 'sarah', password: '123', name: 'Cholis Dev', role: UserRole.DEVELOPER, avatar: 'https://picsum.photos/id/129/100/100', bio: 'Backend Specialist', companyName: 'Hexapro Inc', clientId: generateClientId() },
-  { id: 'u4', username: 'customer', password: '123', name: 'Anthea Customer', role: UserRole.CUSTOMER, avatar: 'https://picsum.photos/id/177/100/100', bio: 'Valued Client', companyName: 'Rivopharmm UK', clientId: 'hx-demo-client-1' },
-  { id: 'u5', username: 'lius', password: '123', name: 'Lius Customer', role: UserRole.CUSTOMER, avatar: 'https://picsum.photos/id/203/100/100', bio: 'Product Owner', companyName: 'QNB Indonesia', clientId: 'hx-demo-client-2' },
-];
-
-const MOCK_TICKETS: Ticket[] = [
-  {
-    id: 't1',
-    title: 'Login page crashes on Safari',
-    description: 'When I try to login using Safari v15, the page turns white and nothing happens.',
-    type: TicketType.BUG,
-    priority: TicketPriority.HIGH,
-    status: TicketStatus.OPEN,
-    createdById: 'u4',
-    createdByName: 'Charlie Customer',
-    assignedToId: undefined,
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    tasks: [],
-    logs: [
-        { id: 'l1', text: 'Ticket created', createdAt: new Date(Date.now() - 86400000 * 2).toISOString(), userId: 'u4', userName: 'Charlie Customer' }
-    ],
-    attachments: [],
-  },
-  {
-    id: 't2',
-    title: 'Dark mode feature request',
-    description: 'It would be great to have a dark mode for late night work.',
-    type: TicketType.FEATURE,
-    priority: TicketPriority.LOW,
-    status: TicketStatus.IN_PROGRESS,
-    createdById: 'u5',
-    createdByName: 'Bob Business',
-    assignedToId: 'u2',
-    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    tasks: [
-        { id: 'tsk1', title: 'Define color palette', description: 'Choose colors that are accessible.', isCompleted: true, approvalStatus: 'APPROVED', assignedToId: 'u2', dueDate: new Date(Date.now() + 86400000).toISOString() },
-        { id: 'tsk2', title: 'Implement toggle switch', description: 'Add switch in the header.', isCompleted: false, approvalStatus: 'NONE', assignedToId: 'u2' },
-        { id: 'tsk3', title: 'Update CSS variables', description: 'Refactor root variables for theme support.', isCompleted: false, approvalStatus: 'NONE' },
-    ],
-    logs: [
-        { id: 'l1', text: 'Ticket created', createdAt: new Date(Date.now() - 86400000 * 5).toISOString(), userId: 'u5', userName: 'Bob Business' },
-        { id: 'l2', text: 'Ticket assigned to Dave Developer', createdAt: new Date(Date.now() - 86400000 * 4).toISOString(), userId: 'u1', userName: 'Alice Admin' }
-    ],
-    attachments: [],
-  },
-];
 
 interface AppContextType {
   currentUser: User | null;
@@ -76,7 +37,7 @@ interface AppContextType {
   deleteTicket: (id: string) => void;
   addTask: (ticketId: string, taskTitle: string, description: string, assignedToId?: string, dueDate?: string) => void;
   updateTask: (ticketId: string, taskId: string, updates: Partial<Task>) => void;
-  toggleTask: (ticketId: string, taskId: string) => void; // Legacy simple toggle
+  toggleTask: (ticketId: string, taskId: string) => void;
   submitTask: (ticketId: string, taskId: string, note?: string, attachments?: Attachment[]) => void;
   approveTask: (ticketId: string, taskId: string) => void;
   rejectTask: (ticketId: string, taskId: string) => void;
@@ -87,21 +48,52 @@ interface AppContextType {
   rejectTicket: (ticketId: string, reason: string, attachments: Attachment[]) => void;
   rejectNewTicket: (ticketId: string, reason: string) => void;
   updateUserProfile: (userId: string, data: Partial<User>) => void;
-  // User Management
   addUser: (userData: Omit<User, 'id' | 'clientId'>) => void;
   adminUpdateUser: (userId: string, data: Partial<User>) => void;
   deleteUser: (userId: string) => void;
+  resetData: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [tickets, setTickets] = useState<Ticket[]>(MOCK_TICKETS);
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
-  // Load theme preference
+  // --- 1. REAL-TIME LISTENERS ---
+
+  // Listen to Users
+  useEffect(() => {
+    const q = query(collection(db, 'users'));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const usersData: User[] = [];
+      querySnapshot.forEach((doc) => {
+        usersData.push({ id: doc.id, ...doc.data() } as User);
+      });
+      setUsers(usersData);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Listen to Tickets
+  useEffect(() => {
+    // Order by createdAt descending
+    const q = query(collection(db, 'tickets'));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const ticketsData: Ticket[] = [];
+      querySnapshot.forEach((doc) => {
+        ticketsData.push({ id: doc.id, ...doc.data() } as Ticket);
+      });
+      // Sort in memory for simplicity or add orderBy to query if you add indexes
+      ticketsData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setTickets(ticketsData);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Theme Logic
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') as 'light' | 'dark';
     if (savedTheme) {
@@ -111,7 +103,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, []);
 
-  // Apply theme class
   useEffect(() => {
     document.documentElement.classList.remove('light', 'dark');
     document.documentElement.classList.add(theme);
@@ -120,7 +111,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
 
+  // --- 2. ACTIONS (Using Firestore) ---
+
   const login = (username: string, password: string) => {
+    // Note: In a production app, use Firebase Auth (signInWithEmailAndPassword)
+    // This maintains your current logic but checks against the DB users
     const user = users.find(u => u.username === username && u.password === password);
     if (user) {
       setCurrentUser(user);
@@ -149,120 +144,129 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       userName: user.name
   });
 
-  const addTicket = (ticketData: Omit<Ticket, 'id' | 'createdAt' | 'status' | 'tasks' | 'createdByName' | 'logs' | 'createdById'>) => {
+  const addTicket = async (ticketData: Omit<Ticket, 'id' | 'createdAt' | 'status' | 'tasks' | 'createdByName' | 'logs' | 'createdById'>) => {
     if (!currentUser) return;
-    const newTicket: Ticket = {
+    const newTicket = {
       ...ticketData,
-      id: `t${Date.now()}`,
       createdAt: new Date().toISOString(),
       status: TicketStatus.OPEN,
       tasks: [],
       logs: [createLog('Ticket created', currentUser)],
       createdById: currentUser.id,
       createdByName: currentUser.name,
+      assignedToId: null // Firestore doesn't like undefined
     };
-    setTickets(prev => [newTicket, ...prev]);
+    
+    // Clean up undefined values before sending to Firestore
+    const cleanTicket = JSON.parse(JSON.stringify(newTicket));
+    await addDoc(collection(db, 'tickets'), cleanTicket);
   };
 
-  const updateTicket = (id: string, updates: Partial<Ticket>) => {
-    setTickets(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+  const updateTicket = async (id: string, updates: Partial<Ticket>) => {
+    const docRef = doc(db, 'tickets', id);
+    await updateDoc(docRef, updates);
   };
 
-  const deleteTicket = (id: string) => {
-    setTickets(prev => prev.filter(t => t.id !== id));
+  const deleteTicket = async (id: string) => {
+    await deleteDoc(doc(db, 'tickets', id));
   };
 
-  const addTask = (ticketId: string, taskTitle: string, description: string, assignedToId?: string, dueDate?: string) => {
-    setTickets(prev => prev.map(t => {
-      if (t.id !== ticketId) return t;
-      const newTask: Task = {
-        id: `tsk${Date.now()}-${Math.random()}`,
-        title: taskTitle,
-        description: description,
-        isCompleted: false,
-        approvalStatus: 'NONE',
-        assignedToId: assignedToId,
-        dueDate: dueDate
-      };
-      return { ...t, tasks: [...t.tasks, newTask] };
-    }));
+  // --- Task Management (Handling Nested Arrays) ---
+  // Firestore approach: We fetch the current doc, modify the array, and update the doc.
+  
+  const addTask = async (ticketId: string, taskTitle: string, description: string, assignedToId?: string, dueDate?: string) => {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) return;
+
+    const newTask: Task = {
+      id: `tsk${Date.now()}-${Math.random()}`,
+      title: taskTitle,
+      description: description,
+      isCompleted: false,
+      approvalStatus: 'NONE',
+      assignedToId: assignedToId || undefined,
+      dueDate: dueDate || undefined
+    };
+
+    // Clean undefined
+    const cleanTask = JSON.parse(JSON.stringify(newTask));
+
+    const updatedTasks = [...ticket.tasks, cleanTask];
+    await updateTicket(ticketId, { tasks: updatedTasks });
   };
 
-  const updateTask = (ticketId: string, taskId: string, updates: Partial<Task>) => {
-      setTickets(prev => prev.map(t => {
-          if (t.id !== ticketId) return t;
-          return {
-              ...t,
-              tasks: t.tasks.map(task => task.id === taskId ? { ...task, ...updates } : task)
-          };
-      }));
+  const updateTask = async (ticketId: string, taskId: string, updates: Partial<Task>) => {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) return;
+
+    const updatedTasks = ticket.tasks.map(task => 
+        task.id === taskId ? { ...task, ...updates } : task
+    );
+
+    await updateTicket(ticketId, { tasks: updatedTasks });
   };
 
-  // Simple toggle (mostly for Admin override)
-  const toggleTask = (ticketId: string, taskId: string) => {
-    setTickets(prev => prev.map(t => {
-      if (t.id !== ticketId) return t;
-      return {
-        ...t,
-        tasks: t.tasks.map(task => {
-            if (task.id !== taskId) return task;
-            const newCompleted = !task.isCompleted;
-            return { 
-                ...task, 
-                isCompleted: newCompleted,
-                approvalStatus: newCompleted ? 'APPROVED' : 'NONE'
-            };
-        })
-      };
-    }));
-  };
+  const toggleTask = async (ticketId: string, taskId: string) => {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) return;
 
-  const submitTask = (ticketId: string, taskId: string, note?: string, attachments?: Attachment[]) => {
-    setTickets(prev => prev.map(t => {
-        if (t.id !== ticketId) return t;
-        return {
-          ...t,
-          tasks: t.tasks.map(task => task.id === taskId ? { 
+    const updatedTasks = ticket.tasks.map(task => {
+        if (task.id !== taskId) return task;
+        const newCompleted = !task.isCompleted;
+        return { 
             ...task, 
-            approvalStatus: 'PENDING',
-            submissionNote: note,
-            submissionAttachments: attachments
-          } : task)
+            isCompleted: newCompleted,
+            approvalStatus: (newCompleted ? 'APPROVED' : 'NONE') as TaskApprovalStatus
         };
-      }));
+    });
+
+    await updateTicket(ticketId, { tasks: updatedTasks });
   };
 
-  const approveTask = (ticketId: string, taskId: string) => {
-    setTickets(prev => prev.map(t => {
-        if (t.id !== ticketId) return t;
-        return {
-          ...t,
-          tasks: t.tasks.map(task => task.id === taskId ? { ...task, isCompleted: true, approvalStatus: 'APPROVED' } : task)
-        };
-      }));
+  const submitTask = async (ticketId: string, taskId: string, note?: string, attachments?: Attachment[]) => {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) return;
+
+    const updatedTasks = ticket.tasks.map(task => task.id === taskId ? { 
+        ...task, 
+        approvalStatus: 'PENDING' as TaskApprovalStatus,
+        submissionNote: note || null,
+        submissionAttachments: attachments || []
+    } : task);
+
+    // Deep clean to remove undefined from attachments
+    const cleanTasks = JSON.parse(JSON.stringify(updatedTasks));
+    await updateTicket(ticketId, { tasks: cleanTasks });
   };
 
-  const rejectTask = (ticketId: string, taskId: string) => {
-    setTickets(prev => prev.map(t => {
-        if (t.id !== ticketId) return t;
-        return {
-          ...t,
-          tasks: t.tasks.map(task => task.id === taskId ? { ...task, isCompleted: false, approvalStatus: 'REJECTED' } : task)
-        };
-      }));
+  const approveTask = async (ticketId: string, taskId: string) => {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) return;
+
+    const updatedTasks = ticket.tasks.map(task => task.id === taskId ? { ...task, isCompleted: true, approvalStatus: 'APPROVED' as TaskApprovalStatus } : task);
+    await updateTicket(ticketId, { tasks: updatedTasks });
   };
 
-  const claimTicket = (ticketId: string) => {
+  const rejectTask = async (ticketId: string, taskId: string) => {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) return;
+
+    const updatedTasks = ticket.tasks.map(task => task.id === taskId ? { ...task, isCompleted: false, approvalStatus: 'REJECTED' as TaskApprovalStatus } : task);
+    await updateTicket(ticketId, { tasks: updatedTasks });
+  };
+
+  // --- Ticket Workflows ---
+
+  const claimTicket = async (ticketId: string) => {
       if (!currentUser) return;
-      setTickets(prev => prev.map(t => {
-          if (t.id !== ticketId) return t;
-          return {
-              ...t,
-              assignedToId: currentUser.id,
-              status: TicketStatus.IN_PROGRESS,
-              logs: [...t.logs, createLog('Ticket claimed', currentUser)]
-          }
-      }));
+      const ticket = tickets.find(t => t.id === ticketId);
+      if(!ticket) return;
+
+      await updateTicket(ticketId, {
+          assignedToId: currentUser.id,
+          status: TicketStatus.IN_PROGRESS,
+          logs: [...ticket.logs, createLog('Ticket claimed', currentUser)]
+      });
   };
 
   const claimTask = (ticketId: string, taskId: string) => {
@@ -270,82 +274,90 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       updateTask(ticketId, taskId, { assignedToId: currentUser.id });
   };
 
-  const resolveTicket = (ticketId: string, note: string | undefined, attachments: Attachment[]) => {
+  const resolveTicket = async (ticketId: string, note: string | undefined, attachments: Attachment[]) => {
       if (!currentUser) return;
-      setTickets(prev => prev.map(t => {
-          if (t.id !== ticketId) return t;
-          return {
-              ...t,
-              status: TicketStatus.RESOLVED, 
-              resolutionNote: note, 
-              resolutionAttachments: attachments,
-              logs: [...t.logs, createLog('Ticket resolved', currentUser)]
-          }
-      }));
+      const ticket = tickets.find(t => t.id === ticketId);
+      if(!ticket) return;
+
+      const cleanAttachments = JSON.parse(JSON.stringify(attachments));
+
+      await updateTicket(ticketId, {
+          status: TicketStatus.RESOLVED, 
+          resolutionNote: note || null, 
+          resolutionAttachments: cleanAttachments,
+          logs: [...ticket.logs, createLog('Ticket resolved', currentUser)]
+      });
   };
 
-  const acceptTicket = (ticketId: string) => {
+  const acceptTicket = async (ticketId: string) => {
       if (!currentUser) return;
-      setTickets(prev => prev.map(t => {
-          if (t.id !== ticketId) return t;
-          return {
-              ...t,
-              status: TicketStatus.CLOSED,
-              logs: [...t.logs, createLog('Ticket accepted and closed', currentUser)]
-          }
-      }));
+      const ticket = tickets.find(t => t.id === ticketId);
+      if(!ticket) return;
+
+      await updateTicket(ticketId, {
+          status: TicketStatus.CLOSED,
+          logs: [...ticket.logs, createLog('Ticket accepted and closed', currentUser)]
+      });
   };
 
-  const rejectTicket = (ticketId: string, reason: string, attachments: Attachment[]) => {
+  const rejectTicket = async (ticketId: string, reason: string, attachments: Attachment[]) => {
       if (!currentUser) return;
-      setTickets(prev => prev.map(t => {
-          if (t.id !== ticketId) return t;
-          return {
-              ...t,
-              status: TicketStatus.IN_PROGRESS,
-              rejectionReason: reason,
-              rejectionAttachments: attachments,
-              logs: [...t.logs, createLog(`Ticket rejected (Reason: ${reason})`, currentUser)]
-          }
-      }));
+      const ticket = tickets.find(t => t.id === ticketId);
+      if(!ticket) return;
+
+      const cleanAttachments = JSON.parse(JSON.stringify(attachments));
+
+      await updateTicket(ticketId, {
+          status: TicketStatus.IN_PROGRESS,
+          rejectionReason: reason,
+          rejectionAttachments: cleanAttachments,
+          logs: [...ticket.logs, createLog(`Ticket rejected (Reason: ${reason})`, currentUser)]
+      });
   };
   
-  const rejectNewTicket = (ticketId: string, reason: string) => {
+  const rejectNewTicket = async (ticketId: string, reason: string) => {
       if (!currentUser) return;
-      setTickets(prev => prev.map(t => {
-          if (t.id !== ticketId) return t;
-          return {
-              ...t,
-              status: TicketStatus.CLOSED,
-              rejectionReason: reason,
-              logs: [...t.logs, createLog(`New ticket rejected (Reason: ${reason})`, currentUser)]
-          }
-      }));
+      const ticket = tickets.find(t => t.id === ticketId);
+      if(!ticket) return;
+
+      await updateTicket(ticketId, {
+          status: TicketStatus.CLOSED,
+          rejectionReason: reason,
+          logs: [...ticket.logs, createLog(`New ticket rejected (Reason: ${reason})`, currentUser)]
+      });
   };
 
-  const updateUserProfile = (userId: string, data: Partial<User>) => {
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, ...data } : u));
+  // --- USER MANAGEMENT ---
+
+  const updateUserProfile = async (userId: string, data: Partial<User>) => {
+      const docRef = doc(db, 'users', userId);
+      await updateDoc(docRef, data);
+      
+      // Update local state if it's the current user
       if (currentUser && currentUser.id === userId) {
           setCurrentUser(prev => prev ? { ...prev, ...data } : null);
       }
   };
 
-  // --- USER MANAGEMENT ---
-  const addUser = (userData: Omit<User, 'id' | 'clientId'>) => {
-      const newUser: User = {
+  const addUser = async (userData: Omit<User, 'id' | 'clientId'>) => {
+      const newUser = {
           ...userData,
-          id: `u${Date.now()}`,
           clientId: generateClientId()
       };
-      setUsers(prev => [...prev, newUser]);
+      await addDoc(collection(db, 'users'), newUser);
   };
 
-  const adminUpdateUser = (userId: string, data: Partial<User>) => {
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, ...data } : u));
+  const adminUpdateUser = async (userId: string, data: Partial<User>) => {
+      const docRef = doc(db, 'users', userId);
+      await updateDoc(docRef, data);
   };
 
-  const deleteUser = (userId: string) => {
-      setUsers(prev => prev.filter(u => u.id !== userId));
+  const deleteUser = async (userId: string) => {
+      await deleteDoc(doc(db, 'users', userId));
+  };
+
+  const resetData = () => {
+      alert("This feature is disabled when connected to Firebase to prevent accidental data loss for all users.");
   };
 
   return (
@@ -354,7 +366,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         addTicket, updateTicket, deleteTicket, addTask, updateTask, toggleTask, 
         submitTask, approveTask, rejectTask, claimTicket, claimTask, 
         resolveTicket, acceptTicket, rejectTicket, rejectNewTicket, updateUserProfile,
-        addUser, adminUpdateUser, deleteUser 
+        addUser, adminUpdateUser, deleteUser, resetData
     }}>
       {children}
     </AppContext.Provider>
