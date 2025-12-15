@@ -1,3 +1,4 @@
+
 export enum UserRole {
   CUSTOMER = 'CUSTOMER',
   ADMIN = 'ADMIN',
@@ -19,9 +20,9 @@ export enum TicketPriority {
 }
 
 export enum TicketType {
-  BUG = 'BUG',
-  FEATURE = 'FEATURE',
-  ISSUE = 'ISSUE',
+  BUG_ISSUE = 'BUG_ISSUE',
+  FEATURE_REQUEST = 'FEATURE_REQUEST',
+  SELF_INITIATION = 'SELF_INITIATION',
 }
 
 export interface User {
@@ -51,6 +52,7 @@ export interface Task {
   title: string;
   description: string;
   isCompleted: boolean;
+  isDeleted?: boolean; // New field
   approvalStatus: TaskApprovalStatus;
   assignedToId?: string;
   dueDate?: string; // ISO String

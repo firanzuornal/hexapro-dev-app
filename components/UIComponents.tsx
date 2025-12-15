@@ -58,12 +58,13 @@ export const StatusBadge: React.FC<{ status: TicketStatus }> = ({ status }) => {
 };
 
 export const TypeBadge: React.FC<{ type: TicketType }> = ({ type }) => {
-    const icons = {
-        [TicketType.BUG]: '🐞',
-        [TicketType.FEATURE]: '✨',
-        [TicketType.ISSUE]: '🔧',
+    const config = {
+        [TicketType.BUG_ISSUE]: { icon: '🐞', label: 'Bugs/Issue' },
+        [TicketType.FEATURE_REQUEST]: { icon: '✨', label: 'Feature Request' },
+        [TicketType.SELF_INITIATION]: { icon: '🚀', label: 'Self Initiation' },
     };
-    return <span className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1">{icons[type]} {type}</span>;
+    const { icon, label } = config[type] || { icon: '❓', label: type };
+    return <span className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-1">{icon} {label}</span>;
 };
 
 export const Card: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ children, className = '', ...props }) => (
@@ -71,3 +72,20 @@ export const Card: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ children,
         {children}
     </div>
 );
+
+export const ProgressBar: React.FC<{ progress: number, className?: string }> = ({ progress, className = '' }) => {
+    // Clamp between 0 and 100
+    const percentage = Math.min(Math.max(progress, 0), 100);
+    
+    let colorClass = "bg-[#7F56D9] dark:bg-[#9E77ED]";
+    if (percentage === 100) colorClass = "bg-green-500";
+    
+    return (
+        <div className={`w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 ${className}`}>
+            <div 
+                className={`${colorClass} h-2.5 rounded-full transition-all duration-500 ease-out`} 
+                style={{ width: `${percentage}%` }}
+            ></div>
+        </div>
+    );
+};

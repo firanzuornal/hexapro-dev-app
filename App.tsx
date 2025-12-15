@@ -7,9 +7,11 @@ import { TaskDashboard } from './features/tasks/TaskDashboard';
 import { HistoryView } from './features/history/HistoryView';
 import { UsersView } from './features/users/UsersView';
 import { ProfilePage } from './features/users/ProfilePage';
+import { ApprovalsView } from './features/approvals/ApprovalsView';
+import { ReportsView } from './features/reports/ReportsView';
 import { Layout } from './components/Layout';
 
-type ViewState = 'TICKETS' | 'TASKS' | 'HISTORY' | 'APPROVALS' | 'TASK_POOL' | 'MY_TASKS' | 'PROFILE' | 'USERS';
+type ViewState = 'TICKETS' | 'TASKS' | 'HISTORY' | 'APPROVALS' | 'TASK_POOL' | 'MY_TASKS' | 'PROFILE' | 'USERS' | 'REPORTS';
 
 const MainApp = () => {
     const { currentUser } = useStore();
@@ -29,10 +31,12 @@ const MainApp = () => {
             ) : (
                 <>
                     {view === 'TICKETS' && <TicketList onSelect={setSelectedTicketId} />}
-                    {(view === 'TASKS' || view === 'MY_TASKS' || view === 'TASK_POOL' || view === 'APPROVALS') && <TaskDashboard viewMode={view} />}
+                    {(view === 'TASKS' || view === 'MY_TASKS' || view === 'TASK_POOL') && <TaskDashboard viewMode={view} />}
+                    {view === 'APPROVALS' && <ApprovalsView onSelectTicket={setSelectedTicketId} />}
                     {view === 'HISTORY' && <HistoryView onSelectTicket={setSelectedTicketId} />}
                     {view === 'USERS' && <UsersView />}
                     {view === 'PROFILE' && <ProfilePage />}
+                    {view === 'REPORTS' && <ReportsView />}
                 </>
             )}
         </Layout>

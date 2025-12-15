@@ -9,12 +9,13 @@ export const TaskItem: React.FC<{
     task: Task; 
     ticketId: string; 
     ticketTitle?: string;
+    ticketAssignedToId?: string;
     onEdit?: (task: Task) => void; 
     onSubmit?: (task: Task) => void;
     onReview?: (task: Task) => void;
     readOnly?: boolean;
-}> = ({ task, ticketId, ticketTitle, onEdit, onSubmit, onReview, readOnly = false }) => {
-    const { currentUser, users, claimTask, updateTask } = useStore();
+}> = ({ task, ticketId, ticketTitle, ticketAssignedToId, onEdit, onSubmit, onReview, readOnly = false }) => {
+    const { currentUser, users, claimTask, updateTask, deleteTask } = useStore();
     const [isAssigning, setIsAssigning] = useState(false);
     const assignee = users.find(u => u.id === task.assignedToId);
     const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && !task.isCompleted;
@@ -25,6 +26,20 @@ export const TaskItem: React.FC<{
     const isDev = currentUser?.role === UserRole.DEVELOPER;
     const isUnassigned = !task.assignedToId;
     const canClaim = !readOnly && isUnassigned && (isAdmin || isDev);
+
+    // Review Permission: Admin OR (Dev assigned to the parent ticket)
+    const canReview = !readOnly && task.approvalStatus === 'PENDING' && (
+        isAdmin || 
+        (isDev && currentUser?.id === ticketAssignedToId)
+    );
+
+    const handleDelete = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (window.confirm('Are you sure you want to delete this task?')) {
+            deleteTask(ticketId, task.id);
+        }
+    };
 
     return (
         <Card className="p-4 flex flex-col gap-2 relative group hover:shadow-md transition-shadow">
@@ -38,7 +53,7 @@ export const TaskItem: React.FC<{
                     ) : (
                         <>
                             {task.approvalStatus === 'PENDING' ? (
-                                isAdmin && !readOnly ? (
+                                canReview ? (
                                     <button 
                                         onClick={() => onReview?.(task)}
                                         className="w-6 h-6 rounded bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 flex items-center justify-center transition-colors"
@@ -73,15 +88,27 @@ export const TaskItem: React.FC<{
                          <div className={`font-medium mr-2 ${task.isCompleted ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-900 dark:text-gray-100'}`}>
                              {task.title}
                          </div>
-                         {!readOnly && (
-                             <button 
-                                 onClick={() => onEdit?.(task)}
-                                 className="text-gray-400 hover:text-[#7F56D9] dark:text-gray-500 dark:hover:text-[#9E77ED] transition-colors p-1"
-                                 title="Edit Task"
-                             >
-                                 <Icons.Edit />
-                             </button>
-                         )}
+                         <div className="flex items-center gap-1">
+                            {!readOnly && (isAdmin || isAssignee) && (
+                                <button 
+                                    onClick={() => onEdit?.(task)}
+                                    className="text-gray-400 hover:text-[#7F56D9] dark:text-gray-500 dark:hover:text-[#9E77ED] transition-colors p-1"
+                                    title="Edit Task"
+                                >
+                                    <Icons.Edit />
+                                </button>
+                            )}
+                            {!readOnly && isAdmin && (
+                                <button 
+                                    type="button"
+                                    onClick={handleDelete}
+                                    className="text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 transition-colors p-1 relative z-10"
+                                    title="Delete Task"
+                                >
+                                    <Icons.Trash />
+                                </button>
+                            )}
+                         </div>
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap pr-8 mt-1">

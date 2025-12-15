@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
 import { useStore } from '../../context/Store';
-import { UserRole } from '../../types';
+import { UserRole, TicketStatus } from '../../types';
 import { Icons } from '../../components/Icons';
-import { Button, Card, TypeBadge, PriorityBadge, StatusBadge } from '../../components/UIComponents';
+import { Button, Card, TypeBadge, PriorityBadge, StatusBadge, ProgressBar } from '../../components/UIComponents';
 import { CreateTicketModal } from './TicketModals';
 
 export const TicketList: React.FC<{ onSelect: (id: string) => void }> = ({ onSelect }) => {
     const { tickets, currentUser, users } = useStore();
     const [showCreateModal, setShowCreateModal] = useState(false);
     
-    // Filter tickets based on role
+    // Filter tickets: 
+    // 1. Role based (Customer sees own, others see all)
+    // 2. Status based (Hide CLOSED tickets)
     const visibleTickets = tickets.filter(t => {
+        if (t.status === TicketStatus.CLOSED) return false;
+        
         if (currentUser?.role === UserRole.CUSTOMER) {
             return t.createdById === currentUser.id;
         }
@@ -32,11 +36,19 @@ export const TicketList: React.FC<{ onSelect: (id: string) => void }> = ({ onSel
             <div className="grid gap-4">
                 {visibleTickets.length === 0 ? (
                     <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-xl border border-dashed border-gray-300 dark:border-gray-700">
-                        <p className="text-gray-500 dark:text-gray-400">No tickets found.</p>
+                        <p className="text-gray-500 dark:text-gray-400">No open tickets found.</p>
                     </div>
                 ) : (
                     visibleTickets.map(t => {
                         const assignee = users.find(u => u.id === t.assignedToId);
+                        
+                        // Calculate Progress
+                        const activeTasks = t.tasks.filter(tsk => !tsk.isDeleted);
+                        const completedTasks = activeTasks.filter(tsk => tsk.isCompleted);
+                        const progress = activeTasks.length > 0 
+                            ? (completedTasks.length / activeTasks.length) * 100 
+                            : 0;
+
                         return (
                         <Card key={t.id} onClick={() => onSelect(t.id)} className="p-4 cursor-pointer hover:shadow-md hover:border-purple-300 dark:hover:border-purple-700 transition-all group">
                             <div className="flex justify-between items-start">
@@ -53,7 +65,17 @@ export const TicketList: React.FC<{ onSelect: (id: string) => void }> = ({ onSel
                                     <StatusBadge status={t.status} />
                                 </div>
                             </div>
-                            <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
+                            
+                            {/* Progress Bar */}
+                            <div className="mt-4 mb-2">
+                                <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                    <span>Progress</span>
+                                    <span>{Math.round(progress)}%</span>
+                                </div>
+                                <ProgressBar progress={progress} className="h-1.5" />
+                            </div>
+
+                            <div className="pt-2 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
                                 <div className="flex -space-x-2">
                                      {assignee ? (
                                          <img src={assignee.avatar} className="w-6 h-6 rounded-full border-2 border-white dark:border-gray-800" title={`Assigned to ${assignee.name}`} />
@@ -62,7 +84,7 @@ export const TicketList: React.FC<{ onSelect: (id: string) => void }> = ({ onSel
                                      )}
                                 </div>
                                 <div className="text-xs text-gray-400 flex items-center gap-2">
-                                    <span className="flex items-center gap-1"><Icons.Clipboard /> {t.tasks.length} tasks</span>
+                                    <span className="flex items-center gap-1"><Icons.Clipboard /> {activeTasks.length} tasks</span>
                                     <span className="flex items-center gap-1"><Icons.PaperClip /> {t.attachments.length}</span>
                                 </div>
                             </div>

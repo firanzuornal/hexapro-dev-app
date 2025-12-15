@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { useStore } from '../../context/Store';
 import { generateTasksForTicket } from '../../services/geminiService';
-import { Ticket, TicketStatus, UserRole, Task } from '../../types';
+import { Ticket, TicketStatus, UserRole, Task, Attachment } from '../../types';
 import { Icons } from '../../components/Icons';
 import { UserSelect } from '../../components/UserSelect';
-import { Button, Card, TypeBadge, PriorityBadge, StatusBadge } from '../../components/UIComponents';
+import { Button, Card, TypeBadge, PriorityBadge, StatusBadge, ProgressBar } from '../../components/UIComponents';
 import { TaskItem } from '../tasks/TaskItem';
 import { EditTaskModal, SubmitTaskModal, ReviewTaskModal } from '../tasks/TaskModals';
-import { ResolveTicketModal, RejectTicketModal, RejectNewTicketModal } from './TicketModals';
+import { ResolveTicketModal, RejectTicketModal, RejectNewTicketModal, CancelTicketModal } from './TicketModals';
 
 export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = ({ ticketId, onBack }) => {
   const { tickets, updateTicket, currentUser, users, addTask, claimTicket, acceptTicket } = useStore();
@@ -19,6 +19,7 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showRejectNewModal, setShowRejectNewModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const [showManualAddTask, setShowManualAddTask] = useState(false);
   
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -31,11 +32,14 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
   const createdByUser = users.find(u => u.id === ticket.createdById);
   const isAssignedToMe = ticket.assignedToId === currentUser?.id;
   const isAdmin = currentUser?.role === UserRole.ADMIN;
-  const isCustomer = currentUser?.role === UserRole.CUSTOMER;
   const isDev = currentUser?.role === UserRole.DEVELOPER;
   const canManageTasks = isAdmin || (isDev && isAssignedToMe);
   const assignables = users.filter(u => u.role === UserRole.DEVELOPER || u.role === UserRole.ADMIN);
   
+  // Resolution Approval Logic
+  const isCreator = currentUser?.id === ticket.createdById;
+  const canApproveResolution = isCreator;
+
   const isOpen = ticket.status === TicketStatus.OPEN;
   const isInProgress = ticket.status === TicketStatus.IN_PROGRESS;
   const isResolved = ticket.status === TicketStatus.RESOLVED;
@@ -44,8 +48,17 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
   const canClaim = !isClosed && isOpen && !ticket.assignedToId && (isAdmin || isDev);
   const canAssign = !isClosed && isAdmin;
   const canRejectNew = isAdmin && isOpen;
+  
+  // Cancel Logic: Only creator can cancel, if not already closed
+  const canCancel = isCreator && !isClosed;
 
-  const allTasksCompleted = ticket.tasks.length > 0 && ticket.tasks.every(t => t.isCompleted);
+  // Filter out deleted tasks for active views
+  const activeTasks = ticket.tasks.filter(t => !t.isDeleted);
+  const completedTasks = activeTasks.filter(t => t.isCompleted);
+  const progress = activeTasks.length > 0 ? (completedTasks.length / activeTasks.length) * 100 : 0;
+
+  const allTasksCompleted = activeTasks.length > 0 && activeTasks.every(t => t.isCompleted);
+  // Submission Logic: Those Assigned (or Admin override) submit the resolution.
   const canSubmitResolution = !isClosed && (isAdmin || isAssignedToMe) && allTasksCompleted && isInProgress;
 
   const handleGenerateTasks = async () => {
@@ -78,6 +91,30 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
       setShowManualAddTask(false);
   }
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && ticket) {
+        const files = Array.from(e.target.files);
+        const newAttachments: Attachment[] = await Promise.all(files.map(file => {
+            return new Promise<Attachment>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    resolve({
+                        id: Math.random().toString(36).substr(2, 9),
+                        name: file.name,
+                        type: file.type,
+                        dataUrl: event.target?.result as string
+                    });
+                };
+                reader.readAsDataURL(file);
+            });
+        }));
+        
+        // Ensure ticket.attachments is an array before spreading
+        const currentAttachments = ticket.attachments || [];
+        updateTicket(ticket.id, { attachments: [...currentAttachments, ...newAttachments] });
+      }
+  };
+
   // --- COMPONENT: LOG TIMELINE (Customer View) ---
   const TicketTimeline = () => (
       <div className="relative border-l-2 border-gray-200 dark:border-gray-700 ml-3 space-y-8 pl-6 py-2">
@@ -102,9 +139,17 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
 
   return (
     <div className="max-w-5xl mx-auto animate-in fade-in duration-300">
-      <button onClick={onBack} className="flex items-center gap-1 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 mb-4 font-medium transition-colors">
-        <Icons.ArrowLeft /> Back to List
-      </button>
+      <div className="flex justify-between items-center mb-4">
+          <button onClick={onBack} className="flex items-center gap-1 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 font-medium transition-colors">
+            <Icons.ArrowLeft /> Back to List
+          </button>
+          
+          {canCancel && (
+             <Button variant="danger" onClick={() => setShowCancelModal(true)} className="flex items-center gap-2 text-sm px-3 py-1.5">
+                 <Icons.Trash /> Cancel Ticket
+             </Button>
+          )}
+      </div>
 
       {/* REJECTION HISTORY BANNER */}
       {ticket.rejectionReason && (
@@ -143,7 +188,8 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
                           </div>
                       )}
                       
-                      {isCustomer && !isClosed && (
+                      {/* ACTION BUTTONS: Visible ONLY to Creator */}
+                      {canApproveResolution && !isClosed && (
                           <div className="flex gap-3">
                               <Button onClick={() => acceptTicket(ticket.id)} className="bg-green-600 hover:bg-green-700 text-white border-none">
                                   Accept & Close
@@ -156,8 +202,12 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
                               </Button>
                           </div>
                       )}
-                      {!isCustomer && !isClosed && (
-                          <div className="text-sm text-green-600 dark:text-green-400 italic">Waiting for customer response.</div>
+                      
+                      {/* WAITING MESSAGE: For everyone else (e.g. the Assignee) */}
+                      {!canApproveResolution && !isClosed && (
+                          <div className="text-sm text-green-600 dark:text-green-400 italic">
+                             Waiting for {ticket.createdByName} (Creator) to approve resolution.
+                          </div>
                       )}
                   </div>
               </div>
@@ -185,9 +235,22 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
             
             <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{ticket.description}</p>
             
-            {ticket.attachments && ticket.attachments.length > 0 && (
-                <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-700">
-                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Icons.PaperClip /> Attachments</h4>
+            <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-700">
+                <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                        <Icons.PaperClip /> Attachments
+                    </h4>
+                    {!isClosed && (
+                        <label className="cursor-pointer text-xs flex items-center gap-1 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 px-2 py-1 rounded text-gray-600 dark:text-gray-300 transition-colors">
+                            <Icons.Plus /> Add File
+                            <input type="file" multiple className="hidden" onChange={handleFileUpload} />
+                        </label>
+                    )}
+                </div>
+                
+                {(!ticket.attachments || ticket.attachments.length === 0) ? (
+                    <p className="text-sm text-gray-400 italic">No attachments.</p>
+                ) : (
                     <div className="flex flex-wrap gap-2">
                         {ticket.attachments.map(att => (
                             <a 
@@ -200,8 +263,8 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
                             </a>
                         ))}
                     </div>
-                </div>
-            )}
+                )}
+            </div>
 
             <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row sm:items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <div className="flex items-center gap-2">
@@ -216,14 +279,15 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
             </div>
           </Card>
 
+          {currentUser?.role !== UserRole.CUSTOMER && (
           <Card className="p-4 md:p-6">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                 {isCustomer ? 'Ticket Activity Log' : 'Tasks & Sub-items'}
-                 {!isCustomer && <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full text-xs">{ticket.tasks.length}</span>}
+                 Tasks & Sub-items
+                 <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full text-xs">{activeTasks.length}</span>
               </h3>
               
-              {!isCustomer && canManageTasks && !isClosed && (
+              {canManageTasks && !isClosed && (
                 <div className="flex gap-2">
                     <Button 
                         variant="secondary" 
@@ -243,77 +307,85 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
               )}
             </div>
 
-            {isCustomer ? (
-                <TicketTimeline />
+            {/* Progress Bar in Details */}
+            {activeTasks.length > 0 && (
+                <div className="mb-6">
+                    <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        <span>Overall Progress</span>
+                        <span>{Math.round(progress)}%</span>
+                    </div>
+                    <ProgressBar progress={progress} />
+                </div>
+            )}
+
+            {/* Always show tasks if they exist, even for customers, to see progress */}
+            {activeTasks.length === 0 ? (
+                <div className="text-center py-8 bg-gray-50 dark:bg-gray-700 rounded-lg border border-dashed border-gray-300 dark:border-gray-600">
+                    <p className="text-gray-500 dark:text-gray-400 text-sm">No tasks created yet.</p>
+                </div>
             ) : (
-                <>
-                    {ticket.tasks.length === 0 ? (
-                        <div className="text-center py-8 bg-gray-50 dark:bg-gray-700 rounded-lg border border-dashed border-gray-300 dark:border-gray-600">
-                            <p className="text-gray-500 dark:text-gray-400 text-sm">No tasks created yet.</p>
+                <div className="space-y-2">
+                    {activeTasks.map(task => (
+                        <TaskItem 
+                            key={task.id} 
+                            task={task} 
+                            ticketId={ticket.id} 
+                            ticketAssignedToId={ticket.assignedToId}
+                            readOnly={isClosed}
+                            onEdit={(t) => setEditingTask({ ticketId: ticket.id, task: t })}
+                            onSubmit={(t) => setSubmittingTask({ ticketId: ticket.id, task: t })}
+                            onReview={(t) => setReviewingTask({ ticketId: ticket.id, task: t })}
+                        />
+                    ))}
+                </div>
+            )}
+            
+            {showManualAddTask && canManageTasks && !isClosed && !isResolved && (
+                <div className="mt-4 animate-in fade-in zoom-in duration-200">
+                    <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">New Task</h4>
+                    <form onSubmit={manualAddTask} className="space-y-3 bg-[#F9F5FF] dark:bg-[#7F56D9]/10 p-4 rounded-lg border border-[#e9d9ff] dark:border-[#7F56D9]/20">
+                        <div className="flex gap-2">
+                            <input 
+                                type="text" 
+                                placeholder="New task title..." 
+                                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-[#7F56D9] outline-none bg-white dark:bg-gray-700 dark:text-white"
+                                value={newTaskTitle}
+                                onChange={e => setNewTaskTitle(e.target.value)}
+                                autoFocus
+                            />
                         </div>
-                    ) : (
-                        <div className="space-y-2">
-                            {ticket.tasks.map(task => (
-                                <TaskItem 
-                                    key={task.id} 
-                                    task={task} 
-                                    ticketId={ticket.id} 
-                                    readOnly={isClosed}
-                                    onEdit={(t) => setEditingTask({ ticketId: ticket.id, task: t })}
-                                    onSubmit={(t) => setSubmittingTask({ ticketId: ticket.id, task: t })}
-                                    onReview={(t) => setReviewingTask({ ticketId: ticket.id, task: t })}
+                        <input 
+                            type="text" 
+                            placeholder="Description (optional)..." 
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-[#7F56D9] outline-none bg-white dark:bg-gray-700 dark:text-white"
+                            value={newTaskDesc}
+                            onChange={e => setNewTaskDesc(e.target.value)}
+                        />
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <UserSelect 
+                                    users={assignables}
+                                    value={newTaskAssignee}
+                                    onChange={setNewTaskAssignee}
+                                    placeholder="Assignee (Optional)"
                                 />
-                            ))}
+                            </div>
+                            <input 
+                                type="datetime-local"
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-[#7F56D9] outline-none bg-white dark:bg-gray-700 dark:text-white"
+                                value={newTaskDueDate}
+                                onChange={e => setNewTaskDueDate(e.target.value)}
+                            />
                         </div>
-                    )}
-                    
-                    {showManualAddTask && canManageTasks && !isClosed && !isResolved && (
-                        <div className="mt-4 animate-in fade-in zoom-in duration-200">
-                            <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">New Task</h4>
-                            <form onSubmit={manualAddTask} className="space-y-3 bg-[#F9F5FF] dark:bg-[#7F56D9]/10 p-4 rounded-lg border border-[#e9d9ff] dark:border-[#7F56D9]/20">
-                                <div className="flex gap-2">
-                                    <input 
-                                        type="text" 
-                                        placeholder="New task title..." 
-                                        className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-[#7F56D9] outline-none bg-white dark:bg-gray-700 dark:text-white"
-                                        value={newTaskTitle}
-                                        onChange={e => setNewTaskTitle(e.target.value)}
-                                        autoFocus
-                                    />
-                                </div>
-                                <input 
-                                    type="text" 
-                                    placeholder="Description (optional)..." 
-                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-[#7F56D9] outline-none bg-white dark:bg-gray-700 dark:text-white"
-                                    value={newTaskDesc}
-                                    onChange={e => setNewTaskDesc(e.target.value)}
-                                />
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div>
-                                        <UserSelect 
-                                            users={assignables}
-                                            value={newTaskAssignee}
-                                            onChange={setNewTaskAssignee}
-                                            placeholder="Assignee (Optional)"
-                                        />
-                                    </div>
-                                    <input 
-                                        type="datetime-local"
-                                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-[#7F56D9] outline-none bg-white dark:bg-gray-700 dark:text-white"
-                                        value={newTaskDueDate}
-                                        onChange={e => setNewTaskDueDate(e.target.value)}
-                                    />
-                                </div>
-                                <div className="flex justify-end gap-2 mt-2">
-                                    <Button type="button" variant="secondary" onClick={() => setShowManualAddTask(false)}>Cancel</Button>
-                                    <Button type="submit" disabled={!newTaskTitle.trim()}>Add Task</Button>
-                                </div>
-                            </form>
+                        <div className="flex justify-end gap-2 mt-2">
+                            <Button type="button" variant="secondary" onClick={() => setShowManualAddTask(false)}>Cancel</Button>
+                            <Button type="submit" disabled={!newTaskTitle.trim()}>Add Task</Button>
                         </div>
-                    )}
-                </>
+                    </form>
+                </div>
             )}
           </Card>
+          )}
         </div>
 
         <div className="space-y-6">
@@ -383,11 +455,17 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
                              >
                                  <Icons.CheckCircle /> Submit Resolution
                              </Button>
-                             <p className="text-xs text-gray-500 mt-2 text-center">Work complete? Send to customer.</p>
+                             <p className="text-xs text-gray-500 mt-2 text-center">Work complete? Send to creator.</p>
                         </div>
                     )}
                 </div>
            </Card>
+           
+           {/* LOG TIMELINE (Moved from main column for non-customers, or duplicated) */}
+            <Card className="p-4 md:p-6">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Activity Log</h3>
+                <TicketTimeline />
+            </Card>
         </div>
       </div>
       
@@ -417,6 +495,13 @@ export const TicketDetail: React.FC<{ ticketId: string; onBack: () => void }> = 
             <RejectNewTicketModal 
                 ticket={ticket} 
                 onClose={() => setShowRejectNewModal(false)} 
+            />
+        )}
+        
+        {showCancelModal && (
+            <CancelTicketModal
+                ticket={ticket}
+                onClose={() => setShowCancelModal(false)}
             />
         )}
 

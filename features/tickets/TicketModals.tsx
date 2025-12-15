@@ -10,8 +10,9 @@ export const CreateTicketModal: React.FC<{ onClose: () => void }> = ({ onClose }
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [priority, setPriority] = useState<TicketPriority>(TicketPriority.MEDIUM);
-    const [type, setType] = useState<TicketType>(TicketType.ISSUE);
+    const [type, setType] = useState<TicketType>(TicketType.BUG_ISSUE);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [attachments, setAttachments] = useState<Attachment[]>([]);
 
     const handleAnalyze = async () => {
         if (!title && !description) return;
@@ -24,6 +25,34 @@ export const CreateTicketModal: React.FC<{ onClose: () => void }> = ({ onClose }
         setIsAnalyzing(false);
     };
 
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files) {
+          const files = Array.from(e.target.files) as File[];
+          const newAttachments: Promise<Attachment>[] = files.map(file => {
+              return new Promise((resolve) => {
+                  const reader = new FileReader();
+                  reader.onload = (event) => {
+                      resolve({
+                          id: Math.random().toString(36).substr(2, 9),
+                          name: file.name,
+                          type: file.type,
+                          dataUrl: event.target?.result as string
+                      });
+                  };
+                  reader.readAsDataURL(file);
+              });
+          });
+          
+          Promise.all(newAttachments).then(results => {
+              setAttachments(prev => [...prev, ...results]);
+          });
+        }
+    };
+
+    const removeAttachment = (id: string) => {
+        setAttachments(prev => prev.filter(a => a.id !== id));
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         addTicket({
@@ -31,15 +60,22 @@ export const CreateTicketModal: React.FC<{ onClose: () => void }> = ({ onClose }
             description,
             priority,
             type,
-            attachments: [],
+            attachments,
             assignedToId: undefined
         });
         onClose();
     };
 
+    // Mapping for readable labels
+    const typeLabels = {
+        [TicketType.BUG_ISSUE]: "Bugs/Issue",
+        [TicketType.FEATURE_REQUEST]: "Feature Request",
+        [TicketType.SELF_INITIATION]: "Self Initiation"
+    };
+
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <Card className="w-full max-w-lg p-6">
+            <Card className="w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
                 <h2 className="text-2xl font-bold mb-6 text-gray-900 dark:text-white">New Ticket</h2>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
@@ -74,7 +110,9 @@ export const CreateTicketModal: React.FC<{ onClose: () => void }> = ({ onClose }
                                 onChange={e => setType(e.target.value as TicketType)}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#7F56D9] outline-none bg-white dark:bg-gray-700 dark:text-white"
                             >
-                                {Object.values(TicketType).map(t => <option key={t} value={t}>{t}</option>)}
+                                {Object.values(TicketType).map(t => (
+                                    <option key={t} value={t}>{typeLabels[t]}</option>
+                                ))}
                             </select>
                         </div>
                         <div>
@@ -90,6 +128,28 @@ export const CreateTicketModal: React.FC<{ onClose: () => void }> = ({ onClose }
                                 {Object.values(TicketPriority).map(p => <option key={p} value={p}>{p}</option>)}
                             </select>
                         </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Attachments</label>
+                        <div className="flex items-center gap-2 mb-2">
+                             <label className="cursor-pointer bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 flex items-center gap-2 w-full justify-center border-dashed">
+                                 <Icons.PaperClip /> Click to Upload Files
+                                 <input type="file" multiple className="hidden" onChange={handleFileChange} />
+                             </label>
+                        </div>
+                        {attachments.length > 0 && (
+                            <ul className="space-y-1">
+                                {attachments.map(file => (
+                                    <li key={file.id} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded text-sm dark:text-gray-200">
+                                        <span className="truncate max-w-[250px]">{file.name}</span>
+                                        <button type="button" onClick={() => removeAttachment(file.id)} className="text-red-500 hover:text-red-700 dark:text-red-400">
+                                            <Icons.X />
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </div>
 
                     <div className="flex justify-end gap-3 mt-6">
@@ -307,6 +367,33 @@ export const RejectNewTicketModal: React.FC<{
                 <Button type="submit" variant="danger">Reject Ticket</Button>
               </div>
             </form>
+          </Card>
+        </div>
+    );
+};
+
+export const CancelTicketModal: React.FC<{
+    ticket: Ticket;
+    onClose: () => void;
+}> = ({ ticket, onClose }) => {
+    const { cancelTicket } = useStore();
+
+    const handleConfirm = () => {
+        cancelTicket(ticket.id);
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md p-6 animate-in fade-in zoom-in duration-200 bg-white dark:bg-gray-800">
+            <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Cancel Ticket</h2>
+            <p className="text-gray-600 dark:text-gray-300 mb-6">
+                Are you sure you want to cancel this ticket? It will be moved to history as 'Closed'.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="secondary" onClick={onClose}>Keep Ticket</Button>
+              <Button type="button" variant="danger" onClick={handleConfirm}>Yes, Cancel It</Button>
+            </div>
           </Card>
         </div>
     );

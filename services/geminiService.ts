@@ -43,7 +43,7 @@ export const generateTasksForTicket = async (ticket: Ticket): Promise<string[]> 
 export const suggestPriorityAndType = async (title: string, description: string): Promise<{ priority: string, type: string }> => {
     try {
         const prompt = `
-            Analyze this request and suggest a Priority (LOW, MEDIUM, HIGH, CRITICAL) and Type (BUG, FEATURE, ISSUE).
+            Analyze this request and suggest a Priority (LOW, MEDIUM, HIGH, CRITICAL) and Type (BUG_ISSUE, FEATURE_REQUEST, SELF_INITIATION).
             Title: ${title}
             Description: ${description}
         `;
@@ -57,17 +57,17 @@ export const suggestPriorityAndType = async (title: string, description: string)
                     type: Type.OBJECT,
                     properties: {
                         priority: { type: Type.STRING, enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
-                        type: { type: Type.STRING, enum: ["BUG", "FEATURE", "ISSUE"] }
+                        type: { type: Type.STRING, enum: ["BUG_ISSUE", "FEATURE_REQUEST", "SELF_INITIATION"] }
                     }
                 }
             }
         });
 
         const jsonStr = response.text?.trim();
-         if (!jsonStr) return { priority: "MEDIUM", type: "ISSUE" };
+         if (!jsonStr) return { priority: "MEDIUM", type: "SELF_INITIATION" };
          return JSON.parse(jsonStr);
 
     } catch (e) {
-        return { priority: "MEDIUM", type: "ISSUE" };
+        return { priority: "MEDIUM", type: "SELF_INITIATION" };
     }
 }

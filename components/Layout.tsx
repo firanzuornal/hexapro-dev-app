@@ -3,7 +3,7 @@ import { useStore } from '../context/Store';
 import { UserRole } from '../types';
 import { Icons } from './Icons';
 
-type ViewState = 'TICKETS' | 'TASKS' | 'HISTORY' | 'APPROVALS' | 'TASK_POOL' | 'MY_TASKS' | 'PROFILE' | 'USERS';
+type ViewState = 'TICKETS' | 'TASKS' | 'HISTORY' | 'APPROVALS' | 'TASK_POOL' | 'MY_TASKS' | 'PROFILE' | 'USERS' | 'REPORTS';
 
 interface LayoutProps {
     children: React.ReactNode;
@@ -32,12 +32,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, view, setView, onReset
             {/* Mobile Sidebar Overlay */}
             {isMenuOpen && (
                 <div 
-                    className="fixed inset-0 z-30 bg-gray-900/50 backdrop-blur-sm md:hidden transition-opacity"
+                    className="fixed inset-0 z-30 bg-gray-900/50 backdrop-blur-sm md:hidden transition-opacity print:hidden"
                     onClick={() => setIsMenuOpen(false)}
                 />
             )}
 
-            <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transform transition-transform duration-200 ease-in-out md:translate-x-0 ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+            <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transform transition-transform duration-200 ease-in-out md:translate-x-0 ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'} print:hidden`}>
                 <div className="h-full flex flex-col">
                     <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
                          <div className="flex items-center gap-2 font-bold text-xl text-[#7F56D9] dark:text-[#9E77ED]">
@@ -49,6 +49,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, view, setView, onReset
 
                     <div className="flex-1 overflow-y-auto p-4 space-y-1">
                         <MenuLink v="TICKETS" icon={<Icons.Inbox />} label="Tickets" />
+                        <MenuLink v="APPROVALS" icon={<Icons.Eye />} label="Approvals" />
                         
                         {(currentUser.role === UserRole.DEVELOPER || currentUser.role === UserRole.ADMIN) && (
                             <>
@@ -57,9 +58,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, view, setView, onReset
                             </>
                         )}
                         
+                        {(currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.DEVELOPER) && (
+                            <MenuLink v="REPORTS" icon={<Icons.Clipboard />} label="Reports" />
+                        )}
+
                         {currentUser.role === UserRole.ADMIN && (
                             <>
-                                <MenuLink v="APPROVALS" icon={<Icons.Eye />} label="Approvals" />
                                 <MenuLink v="USERS" icon={<Icons.Users />} label="Users" />
                             </>
                         )}
@@ -71,6 +75,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, view, setView, onReset
                     </div>
 
                     <div className="p-4 border-t border-gray-100 dark:border-gray-700">
+                        <div className="flex items-center justify-center mb-4">
+                            <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">Local Storage</span>
+                        </div>
                         <div className="flex items-center gap-3 mb-4 px-2">
                             <img src={currentUser.avatar} className="w-8 h-8 rounded-full object-cover" />
                             <div className="flex-1 min-w-0">
@@ -90,9 +97,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, view, setView, onReset
                 </div>
             </aside>
 
-            <main className="flex-1 overflow-auto md:ml-64 w-full">
-                <div className="p-4 md:p-8 max-w-7xl mx-auto">
-                    <div className="md:hidden flex items-center justify-between mb-6">
+            <main className="flex-1 overflow-auto md:ml-64 w-full print:ml-0 print:overflow-visible">
+                <div className="p-4 md:p-8 max-w-7xl mx-auto print:max-w-none print:p-0">
+                    <div className="md:hidden flex items-center justify-between mb-6 print:hidden">
                         <button onClick={() => setIsMenuOpen(true)} className="p-2 -ml-2 text-gray-600 dark:text-gray-300">
                             <Icons.Menu />
                         </button>

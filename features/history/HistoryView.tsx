@@ -16,10 +16,10 @@ export const HistoryView: React.FC<{ onSelectTicket: (id: string) => void }> = (
         (isCustomer ? t.createdById === currentUser.id : true)
     ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    // Tasks History
+    // Tasks History (Completed OR Deleted)
     const allCompletedTasks = tickets.flatMap(t => 
         t.tasks
-            .filter(task => task.isCompleted)
+            .filter(task => task.isCompleted || task.isDeleted)
             .map(task => ({
                 ...task,
                 ticketTitle: t.title,
@@ -27,13 +27,13 @@ export const HistoryView: React.FC<{ onSelectTicket: (id: string) => void }> = (
             }))
     );
 
-    const myCompletedTasks = allCompletedTasks.filter(t => t.assignedToId === currentUser?.id);
+    const myCompletedTasks = allCompletedTasks.filter(t => t.assignedToId === currentUser?.id && !t.isDeleted);
 
     const renderTaskList = (taskList: typeof allCompletedTasks) => {
         if (taskList.length === 0) {
             return (
                 <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 text-gray-500">
-                    No completed tasks found.
+                    No tasks found.
                 </div>
             );
         }
@@ -42,11 +42,11 @@ export const HistoryView: React.FC<{ onSelectTicket: (id: string) => void }> = (
                 {taskList.map(task => (
                     <Card key={task.id} className="p-4 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
                         <div className="flex items-start gap-4">
-                                <div className="mt-1 w-5 h-5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 flex items-center justify-center shrink-0">
-                                <Icons.Check />
+                                <div className={`mt-1 w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${task.isDeleted ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' : 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'}`}>
+                                    {task.isDeleted ? <Icons.Trash /> : <Icons.Check />}
                                 </div>
                                 <div className="flex-1">
-                                    <div className="font-medium text-gray-900 dark:text-white line-through decoration-gray-400">{task.title}</div>
+                                    <div className={`font-medium text-gray-900 dark:text-white ${task.isDeleted ? 'line-through text-gray-500' : 'line-through decoration-gray-400'}`}>{task.title}</div>
                                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                     Ticket: {task.ticketTitle}
                                     </div>
@@ -58,7 +58,7 @@ export const HistoryView: React.FC<{ onSelectTicket: (id: string) => void }> = (
                                     )}
                                 </div>
                                 <div className="flex flex-col items-end gap-1">
-                                    <div className="text-xs text-gray-400">Completed</div>
+                                    <div className={`text-xs ${task.isDeleted ? 'text-red-500 font-bold' : 'text-gray-400'}`}>{task.isDeleted ? 'Deleted' : 'Completed'}</div>
                                     {task.dueDate && <div className="text-xs text-gray-400">Due: {new Date(task.dueDate).toLocaleDateString()}</div>}
                                 </div>
                         </div>

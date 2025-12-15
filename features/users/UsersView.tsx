@@ -15,15 +15,18 @@ const AddEditUserModal: React.FC<{
     const [role, setRole] = useState<UserRole>(user?.role || UserRole.CUSTOMER);
     const [companyName, setCompanyName] = useState(user?.companyName || '');
     const [avatar, setAvatar] = useState(user?.avatar || 'https://via.placeholder.com/100');
+    // For regenerate logic, track client ID in local state
+    const [clientId, setClientId] = useState(user?.clientId || '');
+    const [isManualClientId, setIsManualClientId] = useState(false);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (user) {
             // Edit
-            adminUpdateUser(user.id, { username, password, name, role, companyName, avatar });
+            adminUpdateUser(user.id, { username, password, name, role, companyName, avatar, clientId });
         } else {
             // Add
-            addUser({ username, password, name, role, companyName, avatar, bio: '' });
+            addUser({ username, password, name, role, companyName, avatar, bio: '', clientId });
         }
         onClose();
     };
@@ -38,6 +41,17 @@ const AddEditUserModal: React.FC<{
                 }
             };
             reader.readAsDataURL(file);
+        }
+    };
+
+    const regenerateClientId = () => {
+        if (window.confirm("Are you sure you want to regenerate the Client ID? The old ID will be invalid.")) {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+            let result = '';
+            for (let i = 0; i < 32; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            setClientId(`hx-${result}`);
         }
     };
 
@@ -84,12 +98,22 @@ const AddEditUserModal: React.FC<{
                 </div>
                 
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Client ID (Auto-generated)</label>
-                    <input 
-                        value={user?.clientId || 'Generated on creation'} 
-                        readOnly
-                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-lg outline-none font-mono text-sm"
-                    />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Client ID</label>
+                    <div className="flex gap-2">
+                        <input 
+                            value={clientId} 
+                            onChange={e => setClientId(e.target.value)}
+                            readOnly={!isManualClientId}
+                            placeholder="Generated on creation"
+                            className={`flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg outline-none font-mono text-sm transition-colors ${isManualClientId ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-[#7F56D9]' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}
+                        />
+                         <Button type="button" variant="secondary" onClick={() => setIsManualClientId(!isManualClientId)} className="px-3" title="Edit Manually">
+                            <Icons.Edit />
+                        </Button>
+                        <Button type="button" variant="secondary" onClick={regenerateClientId} className="px-3" title="Regenerate Client ID">
+                            <Icons.Refresh />
+                        </Button>
+                    </div>
                 </div>
 
                 <div className="flex justify-end gap-3 mt-6">
@@ -106,6 +130,12 @@ export const UsersView = () => {
     const { users, deleteUser } = useStore();
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [isAdding, setIsAdding] = useState(false);
+
+    const handleDelete = (userId: string) => {
+        if(window.confirm("Are you sure you want to delete this user? This action cannot be undone.")) {
+            deleteUser(userId);
+        }
+    }
 
     return (
         <div className="space-y-6">
@@ -141,7 +171,7 @@ export const UsersView = () => {
                         </div>
                         <div className="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-gray-700">
                             <Button variant="ghost" onClick={() => setEditingUser(u)} className="text-sm px-3 py-1">Edit</Button>
-                            <Button variant="ghost" onClick={() => deleteUser(u.id)} className="text-sm px-3 py-1 text-red-600 hover:text-red-700">Delete</Button>
+                            <Button variant="ghost" onClick={() => handleDelete(u.id)} className="text-sm px-3 py-1 text-red-600 hover:text-red-700">Delete</Button>
                         </div>
                     </Card>
                 ))}
@@ -178,7 +208,7 @@ export const UsersView = () => {
                                 <td className="px-6 py-4 text-xs font-mono text-gray-400">{u.clientId ? `${u.clientId.substring(0, 8)}...` : '-'}</td>
                                 <td className="px-6 py-4 text-right flex justify-end gap-2">
                                     <button onClick={() => setEditingUser(u)} className="text-gray-400 hover:text-[#7F56D9] dark:hover:text-[#9E77ED]"><Icons.Edit /></button>
-                                    <button onClick={() => deleteUser(u.id)} className="text-gray-400 hover:text-red-500 dark:hover:text-red-400"><Icons.Trash /></button>
+                                    <button onClick={() => handleDelete(u.id)} className="text-gray-400 hover:text-red-500 dark:hover:text-red-400"><Icons.Trash /></button>
                                 </td>
                             </tr>
                         ))}
